@@ -220,15 +220,15 @@ class Script(scripts.Script):
             return gr.Dropdown.update(value=selected, choices=list(global_state.cn_models.keys()))
 
         with gr.Row():
-            module = gr.Dropdown(list(self.preprocessor.keys()), label=f"Preprocessor", value=default_unit.module)
-            model = gr.Dropdown(list(global_state.cn_models.keys()), label=f"Model", value=default_unit.model)
+            module = gr.Dropdown(list(self.preprocessor.keys()),elem_id='ctl_module', label=f"Preprocessor", value=default_unit.module)
+            model = gr.Dropdown(list(global_state.cn_models.keys()), elem_id='ctl_model',label=f"Model", value=default_unit.model)
             refresh_models = ToolButton(value=refresh_symbol)
             refresh_models.click(refresh_all_models, model, model)
                 # ctrls += (refresh_models, )
         with gr.Row():
-            weight = gr.Slider(label=f"Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
-            guidance_start = gr.Slider(label="Guidance Start (T)", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
-            guidance_end = gr.Slider(label="Guidance End (T)", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
+            weight = gr.Slider(elem_id='ctl_weight',label=f"Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
+            guidance_start = gr.Slider(elem_id='ctl_guidance_start',label="Guidance Start (T)", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
+            guidance_end = gr.Slider(elem_id='ctl_guidance_end',label="Guidance End (T)", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
 
             ctrls += (module, model, weight,)
                 # model_dropdowns.append(model)
@@ -314,9 +314,9 @@ class Script(scripts.Script):
         # advanced options    
         advanced = gr.Column(visible=False)
         with advanced:
-            processor_res = gr.Slider(label="Annotator resolution", value=default_unit.processor_res, minimum=64, maximum=2048, interactive=False)
-            threshold_a =  gr.Slider(label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, interactive=False)
-            threshold_b =  gr.Slider(label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, interactive=False)
+            processor_res = gr.Slider(elem_id='ctl_processor_res',label="Annotator resolution", value=default_unit.processor_res, minimum=64, maximum=2048, interactive=False)
+            threshold_a =  gr.Slider(elem_id='ctl_threshold_a',label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, interactive=False)
+            threshold_b =  gr.Slider(elem_id='ctl_threshold_b',label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, interactive=False)
             
         if gradio_compat:    
             module.change(build_sliders, inputs=[module], outputs=[processor_res, threshold_a, threshold_b, advanced])
@@ -342,8 +342,8 @@ class Script(scripts.Script):
         resize_mode = gr.Radio(choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
         with gr.Row():
             with gr.Column():
-                canvas_width = gr.Slider(label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
-                canvas_height = gr.Slider(label="Canvas Height", minimum=256, maximum=1024, value=512, step=64)
+                canvas_width = gr.Slider(elem_id='ctl_canvas_widthb',label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
+                canvas_height = gr.Slider(elem_id='ctl_canvas_height',label="Canvas Height", minimum=256, maximum=1024, value=512, step=64)
                     
             if gradio_compat:
                 canvas_swap_res = ToolButton(value=switch_values_symbol)
