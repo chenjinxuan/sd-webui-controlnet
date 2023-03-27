@@ -339,10 +339,10 @@ class Script(scripts.Script):
                 return input_image.orgpreprocess(inputs)
             return None
 
-        resize_mode = gr.Radio(choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
+        resize_mode = gr.Radio(elem_id='ctl_resize_mode',choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
         with gr.Row():
             with gr.Column():
-                canvas_width = gr.Slider(elem_id='ctl_canvas_widthb',label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
+                canvas_width = gr.Slider(elem_id='ctl_canvas_width',label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
                 canvas_height = gr.Slider(elem_id='ctl_canvas_height',label="Canvas Height", minimum=256, maximum=1024, value=512, step=64)
                     
             if gradio_compat:
