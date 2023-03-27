@@ -420,7 +420,7 @@ class Script(scripts.Script):
         controls = ()
         max_models = shared.opts.data.get("control_net_max_models_num", 1)
         with gr.Group():
-            with gr.Accordion("ControlNet", open = False, elem_id="controlnet"):
+            with gr.Accordion("ControlNet", open = True, elem_id="controlnet"):
                 if max_models > 1:
                     with gr.Tabs():
                         for i in range(max_models):
