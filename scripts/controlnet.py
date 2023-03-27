@@ -167,7 +167,7 @@ class Script(scripts.Script):
         infotext_fields = []
         default_unit = self.get_default_ui_unit()
         with gr.Row():
-            input_image = gr.Image(source='upload', mirror_webcam=False, type='numpy', tool='sketch')
+            input_image = gr.Image(elem_id='ctl_image',source='upload', mirror_webcam=False, type='numpy', tool='sketch')
             generated_image = gr.Image(label="Annotator result", visible=False)
 
         with gr.Row():
@@ -177,11 +177,11 @@ class Script(scripts.Script):
             send_dimen_button = ToolButton(value=tossup_symbol)
 
         with gr.Row():
-            enabled = gr.Checkbox(label='Enable', value=default_unit.enabled)
-            scribble_mode = gr.Checkbox(label='Invert Input Color', value=default_unit.invert_image)
-            rgbbgr_mode = gr.Checkbox(label='RGB to BGR', value=default_unit.rgbbgr_mode)
-            lowvram = gr.Checkbox(label='Low VRAM', value=default_unit.low_vram)
-            guess_mode = gr.Checkbox(label='Guess Mode', value=default_unit.guess_mode)
+            enabled = gr.Checkbox(elem_id='ctl_enabled',label='Enable', value=default_unit.enabled)
+            scribble_mode = gr.Checkbox(elem_id='ctl_scribble_mode',label='Invert Input Color', value=default_unit.invert_image)
+            rgbbgr_mode = gr.Checkbox(elem_id='ctl_rgbbgr_mode',label='RGB to BGR', value=default_unit.rgbbgr_mode)
+            lowvram = gr.Checkbox(elem_id='ctl_lowvram',label='Low VRAM', value=default_unit.low_vram)
+            guess_mode = gr.Checkbox(elem_id='ctl_guess_mode',label='Guess Mode', value=default_unit.guess_mode)
 
         ctrls += (enabled,)
         # infotext_fields.append((enabled, "ControlNet Enabled"))
