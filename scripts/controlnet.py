@@ -164,10 +164,15 @@ class Script(scripts.Script):
 
     def uigroup(self, tabname, is_img2img):
         ctrls = ()
+        all_tabname = tabname
+        if is_img2img:
+            all_tabname="img2img_"+tabname
+        else:
+            all_tabname="txt2img_"+tabname
         infotext_fields = []
         default_unit = self.get_default_ui_unit()
         with gr.Row():
-            input_image = gr.Image(elem_id=tabname+'_ext_ctl_image',source='upload', mirror_webcam=False, type='numpy', tool='sketch')
+            input_image = gr.Image(elem_id=all_tabname+'_ext_ctl_image',source='upload', mirror_webcam=False, type='numpy', tool='sketch')
             generated_image = gr.Image(label="Annotator result", visible=False)
 
         with gr.Row():
@@ -177,11 +182,11 @@ class Script(scripts.Script):
             send_dimen_button = ToolButton(value=tossup_symbol)
 
         with gr.Row():
-            enabled = gr.Checkbox(elem_id=tabname+'_ext_ctl_enabled',label='Enable', value=default_unit.enabled)
-            scribble_mode = gr.Checkbox(elem_id=tabname+'_ext_ctl_scribble_mode',label='Invert Input Color', value=default_unit.invert_image)
-            rgbbgr_mode = gr.Checkbox(elem_id=tabname+'_ext_ctl_rgbbgr_mode',label='RGB to BGR', value=default_unit.rgbbgr_mode)
-            lowvram = gr.Checkbox(elem_id=tabname+'_ext_ctl_lowvram',label='Low VRAM', value=default_unit.low_vram)
-            guess_mode = gr.Checkbox(elem_id=tabname+'_ext_ctl_guess_mode',label='Guess Mode', value=default_unit.guess_mode)
+            enabled = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_enabled',label='Enable', value=default_unit.enabled)
+            scribble_mode = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_scribble_mode',label='Invert Input Color', value=default_unit.invert_image)
+            rgbbgr_mode = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_rgbbgr_mode',label='RGB to BGR', value=default_unit.rgbbgr_mode)
+            lowvram = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_lowvram',label='Low VRAM', value=default_unit.low_vram)
+            guess_mode = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_guess_mode',label='Guess Mode', value=default_unit.guess_mode)
 
         ctrls += (enabled,)
         # infotext_fields.append((enabled, "ControlNet Enabled"))
@@ -220,15 +225,15 @@ class Script(scripts.Script):
             return gr.Dropdown.update(value=selected, choices=list(global_state.cn_models.keys()))
 
         with gr.Row():
-            module = gr.Dropdown(list(self.preprocessor.keys()),elem_id=tabname+'_ext_ctl_module', label=f"Preprocessor", value=default_unit.module)
-            model = gr.Dropdown(list(global_state.cn_models.keys()), elem_id=tabname+'_ext_ctl_model',label=f"Model", value=default_unit.model)
+            module = gr.Dropdown(list(self.preprocessor.keys()),elem_id=all_tabname+'_ext_ctl_module', label=f"Preprocessor", value=default_unit.module)
+            model = gr.Dropdown(list(global_state.cn_models.keys()), elem_id=all_tabname+'_ext_ctl_model',label=f"Model", value=default_unit.model)
             refresh_models = ToolButton(value=refresh_symbol)
             refresh_models.click(refresh_all_models, model, model)
                 # ctrls += (refresh_models, )
         with gr.Row():
-            weight = gr.Slider(elem_id=tabname+'_ext_ctl_weight',label=f"Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
-            guidance_start = gr.Slider(elem_id=tabname+'_ext_ctl_guidance_start',label="Guidance Start (T)", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
-            guidance_end = gr.Slider(elem_id=tabname+'_ext_ctl_guidance_end',label="Guidance End (T)", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
+            weight = gr.Slider(elem_id=all_tabname+'_ext_ctl_weight',label=f"Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
+            guidance_start = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_start',label="Guidance Start (T)", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
+            guidance_end = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_end',label="Guidance End (T)", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
 
             ctrls += (module, model, weight,)
                 # model_dropdowns.append(model)
@@ -314,9 +319,9 @@ class Script(scripts.Script):
         # advanced options    
         advanced = gr.Column(visible=False)
         with advanced:
-            processor_res = gr.Slider(elem_id=tabname+'_ext_ctl_processor_res',label="Annotator resolution", value=default_unit.processor_res, minimum=64, maximum=2048, interactive=False)
-            threshold_a =  gr.Slider(elem_id=tabname+'_ext_ctl_threshold_a',label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, interactive=False)
-            threshold_b =  gr.Slider(elem_id=tabname+'_ext_ctl_threshold_b',label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, interactive=False)
+            processor_res = gr.Slider(elem_id=all_tabname+'_ext_ctl_processor_res',label="Annotator resolution", value=default_unit.processor_res, minimum=64, maximum=2048, interactive=False)
+            threshold_a =  gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_a',label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, interactive=False)
+            threshold_b =  gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_b',label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, interactive=False)
             
         if gradio_compat:    
             module.change(build_sliders, inputs=[module], outputs=[processor_res, threshold_a, threshold_b, advanced])
@@ -339,11 +344,11 @@ class Script(scripts.Script):
                 return input_image.orgpreprocess(inputs)
             return None
 
-        resize_mode = gr.Radio(elem_id=tabname+'_ext_ctl_resize_mode',choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
+        resize_mode = gr.Radio(elem_id=all_tabname+'_ext_ctl_resize_mode',choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
         with gr.Row():
             with gr.Column():
-                canvas_width = gr.Slider(elem_id=tabname+'_ext_ctl_canvas_width',label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
-                canvas_height = gr.Slider(elem_id=tabname+'_ext_ctl_canvas_height',label="Canvas Height", minimum=256, maximum=1024, value=512, step=64)
+                canvas_width = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_width',label="Canvas Width", minimum=256, maximum=1024, value=512, step=64)
+                canvas_height = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_height',label="Canvas Height", minimum=256, maximum=1024, value=512, step=64)
                     
             if gradio_compat:
                 canvas_swap_res = ToolButton(value=switch_values_symbol)
@@ -428,7 +433,7 @@ class Script(scripts.Script):
                                 controls += (self.uigroup(f"ControlNet-{i}", is_img2img),)
                 else:
                     with gr.Column():
-                        controls += (self.uigroup(f"ControlNet", is_img2img),)
+                        controls += (self.uigroup(f"ControlNet-0", is_img2img),)
                         
         if shared.opts.data.get("control_net_sync_field_args", False):
             for _, field_name in self.infotext_fields:
