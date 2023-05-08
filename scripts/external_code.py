@@ -278,7 +278,7 @@ def find_cn_script(script_runner: scripts.ScriptRunner) -> Optional[scripts.Scri
     """
 
     if script_runner is None:
-        return None:
+        return None
     
     for script in script_runner.alwayson_scripts:
         if is_cn_script(script):
