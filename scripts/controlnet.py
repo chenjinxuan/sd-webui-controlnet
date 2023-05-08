@@ -302,7 +302,7 @@ class Script(scripts.Script):
                         gr.HTML(value=f'''<a style="{preview_close_button_style}" title="Close Preview" onclick="{preview_close_button_js}">Close</a>''', visible=True)
 
             with gr.Tab(label='Batch') as batch_tab:
-                batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory', elem_id=f'{elem_id_tabname}_{tabname}_batch_image_dir')
+                batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory', elem_id=all_tabname+'_ext_ctl_batch_image_dir')
 
         with gr.Accordion(label='Open New Canvas', visible=False) as create_canvas:
             canvas_width = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_width',label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
