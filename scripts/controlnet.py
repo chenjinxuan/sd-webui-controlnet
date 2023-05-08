@@ -264,7 +264,7 @@ class Script(scripts.Script):
             model="None"
         )
 
-    def uigroup(self, tabname, is_img2img, elem_id_tabname):
+    def uigroup(self, tabname, is_img2img):
         infotext_fields = []
         default_unit = self.get_default_ui_unit()
         all_tabname = tabname
@@ -278,7 +278,7 @@ class Script(scripts.Script):
                     input_image = gr.Image(source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch', elem_id=all_tabname+'_ext_ctl_image')
                     # Gradio's magic number. Only 242 works.
                     with gr.Group(visible=False) as generated_image_group:
-                        generated_image = gr.Image(label="Preprocessor Preview", elem_id=f'{elem_id_tabname}_{tabname}_generated_image').style(height=242)
+                        generated_image = gr.Image(label="Preprocessor Preview", elem_id=all_tabname+'_ext_ctl_generated_image').style(height=242)
                         download_pose_link = gr.HTML(value='', visible=False)
                         preview_close_button_style = """ 
                             position: absolute;
@@ -652,10 +652,10 @@ class Script(scripts.Script):
                     with gr.Tabs(elem_id=f"{elem_id_tabname}_tabs"):
                         for i in range(max_models):
                             with gr.Tab(f"ControlNet Unit {i}"):
-                                controls += (self.uigroup(f"ControlNet-{i}", is_img2img, elem_id_tabname),)
+                                controls += (self.uigroup(f"ControlNet-{i}", is_img2img),)
                 else:
                     with gr.Column():
-                        controls += (self.uigroup(f"ControlNet-0", is_img2img, elem_id_tabname),)
+                        controls += (self.uigroup(f"ControlNet-0", is_img2img),)
 
         if shared.opts.data.get("control_net_sync_field_args", False):
             for _, field_name in self.infotext_fields:
