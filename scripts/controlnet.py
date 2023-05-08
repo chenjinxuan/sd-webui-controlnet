@@ -267,10 +267,15 @@ class Script(scripts.Script):
     def uigroup(self, tabname, is_img2img, elem_id_tabname):
         infotext_fields = []
         default_unit = self.get_default_ui_unit()
+        all_tabname = tabname
+        if is_img2img:
+            all_tabname="img2img_"+tabname
+        else:
+            all_tabname="txt2img_"+tabname
         with gr.Tabs():
             with gr.Tab(label='Single Image') as upload_tab:
                 with gr.Row().style(equal_height=True):
-                    input_image = gr.Image(source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch', elem_id=f'{elem_id_tabname}_{tabname}_input_image')
+                    input_image = gr.Image(source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch', elem_id=all_tabname+'_ext_ctl_image')
                     # Gradio's magic number. Only 242 works.
                     with gr.Group(visible=False) as generated_image_group:
                         generated_image = gr.Image(label="Preprocessor Preview", elem_id=f'{elem_id_tabname}_{tabname}_generated_image').style(height=242)
@@ -291,7 +296,8 @@ class Script(scripts.Script):
                             height: var(--size-5);
                             color: var(--block-label-text-color);
                             """
-                        preview_check_elem_id = f'{elem_id_tabname}_{tabname}_preprocessor_preview'
+                        #preview_check_elem_id = f'{elem_id_tabname}_{tabname}_preprocessor_preview'
+                        preview_check_elem_id = all_tabname+'_ext_ctl_pixel_perfect'
                         preview_close_button_js = f"document.querySelector(\'#{preview_check_elem_id} input[type=\\\'checkbox\\\']\').click();"
                         gr.HTML(value=f'''<a style="{preview_close_button_style}" title="Close Preview" onclick="{preview_close_button_js}">Close</a>''', visible=True)
 
@@ -299,8 +305,8 @@ class Script(scripts.Script):
                 batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory', elem_id=f'{elem_id_tabname}_{tabname}_batch_image_dir')
 
         with gr.Accordion(label='Open New Canvas', visible=False) as create_canvas:
-            canvas_width = gr.Slider(label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
-            canvas_height = gr.Slider(label="New Canvas Height", minimum=256, maximum=1024, value=512, step=64)
+            canvas_width = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_width',label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
+            canvas_height = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_height',label="New Canvas Height", minimum=256, maximum=1024, value=512, step=64)
             with gr.Row():
                 canvas_create_button = gr.Button(value="Create New Canvas")
                 canvas_cancel_button = gr.Button(value="Cancel")
@@ -316,10 +322,10 @@ class Script(scripts.Script):
         canvas_cancel_button.click(lambda: gr.Accordion.update(visible=False), inputs=None, outputs=create_canvas)
 
         with FormRow(elem_classes="checkboxes-row", variant="compact"):
-            enabled = gr.Checkbox(label='Enable', value=default_unit.enabled)
-            lowvram = gr.Checkbox(label='Low VRAM', value=default_unit.low_vram)
-            pixel_perfect = gr.Checkbox(label='Pixel Perfect', value=default_unit.pixel_perfect)
-            preprocessor_preview = gr.Checkbox(label='Allow Preview', value=False, elem_id=preview_check_elem_id)
+            enabled = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_enabled',label='Enable', value=default_unit.enabled)
+            lowvram = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_lowvram',label='Low VRAM', value=default_unit.low_vram)
+            pixel_perfect = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_pixel_perfect',label='Pixel Perfect', value=default_unit.pixel_perfect)
+            preprocessor_preview = gr.Checkbox(elem_id=preview_check_elem_id,label='Allow Preview', value=False)
 
         # infotext_fields.append((enabled, "ControlNet Enabled"))
 
@@ -357,16 +363,16 @@ class Script(scripts.Script):
             return gr.Dropdown.update(value=selected, choices=list(global_state.cn_models.keys()))
 
         with gr.Row():
-            module = gr.Dropdown(global_state.ui_preprocessor_keys, label=f"Preprocessor", value=default_unit.module)
-            trigger_preprocessor = ToolButton(value=trigger_symbol, visible=True)
-            model = gr.Dropdown(list(global_state.cn_models.keys()), label=f"Model", value=default_unit.model)
+            module = gr.Dropdown(global_state.ui_preprocessor_keys,elem_id=all_tabname+'_ext_ctl_module', label=f"Preprocessor", value=default_unit.module)
+            trigger_preprocessor = ToolButton(elem_id=all_tabname+'_ext_ctl_trigger_preprocessor',value=trigger_symbol, visible=True)
+            model = gr.Dropdown(list(global_state.cn_models.keys()),elem_id=all_tabname+'_ext_ctl_model', label=f"Model", value=default_unit.model)
             refresh_models = ToolButton(value=refresh_symbol)
             refresh_models.click(refresh_all_models, model, model)
 
         with gr.Row():
-            weight = gr.Slider(label=f"Control Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
-            guidance_start = gr.Slider(label="Starting Control Step", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
-            guidance_end = gr.Slider(label="Ending Control Step", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
+            weight = gr.Slider(elem_id=all_tabname+'_ext_ctl_weight',label=f"Control Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
+            guidance_start = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_start',label="Starting Control Step", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
+            guidance_end = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_end',label="Ending Control Step", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
 
         def build_sliders(module, pp):
             module = self.get_module_basename(module)
@@ -405,9 +411,9 @@ class Script(scripts.Script):
 
         # advanced options
         with gr.Column(visible=False) as advanced:
-            processor_res = gr.Slider(label="Preprocessor resolution", value=default_unit.processor_res, minimum=64, maximum=2048, visible=False, interactive=False)
-            threshold_a = gr.Slider(label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, visible=False, interactive=False)
-            threshold_b = gr.Slider(label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, visible=False, interactive=False)
+            processor_res = gr.Slider(elem_id=all_tabname+'_ext_ctl_processor_res',label="Preprocessor resolution", value=default_unit.processor_res, minimum=64, maximum=2048, visible=False, interactive=False)
+            threshold_a = gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_a',label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, visible=False, interactive=False)
+            threshold_b = gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_b',label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, visible=False, interactive=False)
 
         if gradio_compat:
             module.change(build_sliders, inputs=[module, pixel_perfect], outputs=[processor_res, threshold_a, threshold_b, advanced])
@@ -522,11 +528,11 @@ class Script(scripts.Script):
         else:
             send_dimen_button.click(fn=send_dimensions, inputs=[input_image], outputs=[self.txt2img_w_slider, self.txt2img_h_slider])
 
-        control_mode = gr.Radio(choices=[e.value for e in external_code.ControlMode], value=default_unit.control_mode.value, label="Control Mode")
+        control_mode = gr.Radio(elem_id=all_tabname+'_ext_ctl_control_mode',choices=[e.value for e in external_code.ControlMode], value=default_unit.control_mode.value, label="Control Mode")
 
-        resize_mode = gr.Radio(choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
+        resize_mode = gr.Radio(elem_id=all_tabname+'_ext_ctl_resize_mode',choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
 
-        loopback = gr.Checkbox(label='[Loopback] Automatically send generated images to this ControlNet unit', value=default_unit.loopback)
+        loopback = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_loopback',label='[Loopback] Automatically send generated images to this ControlNet unit', value=default_unit.loopback)
 
         trigger_preprocessor.click(fn=run_annotator, inputs=[
             input_image, module, processor_res, threshold_a, threshold_b,
@@ -649,7 +655,7 @@ class Script(scripts.Script):
                                 controls += (self.uigroup(f"ControlNet-{i}", is_img2img, elem_id_tabname),)
                 else:
                     with gr.Column():
-                        controls += (self.uigroup(f"ControlNet", is_img2img, elem_id_tabname),)
+                        controls += (self.uigroup(f"ControlNet-0", is_img2img, elem_id_tabname),)
 
         if shared.opts.data.get("control_net_sync_field_args", False):
             for _, field_name in self.infotext_fields:
