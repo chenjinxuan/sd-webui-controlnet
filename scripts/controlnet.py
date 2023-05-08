@@ -297,7 +297,7 @@ class Script(scripts.Script):
                             color: var(--block-label-text-color);
                             """
                         #preview_check_elem_id = f'{elem_id_tabname}_{tabname}_preprocessor_preview'
-                        preview_check_elem_id = all_tabname+'_ext_ctl_pixel_perfect'
+                        preview_check_elem_id = all_tabname+'_ext_ctl_preprocessor_preview'
                         preview_close_button_js = f"document.querySelector(\'#{preview_check_elem_id} input[type=\\\'checkbox\\\']\').click();"
                         gr.HTML(value=f'''<a style="{preview_close_button_style}" title="Close Preview" onclick="{preview_close_button_js}">Close</a>''', visible=True)
 
