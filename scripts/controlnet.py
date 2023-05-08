@@ -3,6 +3,7 @@ import inspect
 import os
 from collections import OrderedDict
 from copy import copy
+import base64
 from typing import Union, Dict, Optional, List
 import importlib
 
@@ -34,6 +35,7 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 from scripts.lvminthin import lvmin_thin, nake_nms
 from torchvision.transforms import Resize, InterpolationMode, CenterCrop, Compose
+from scripts.processor import preprocessor_sliders_config, flag_preprocessor_resolution
 
 gradio_compat = True
 try:
@@ -55,6 +57,7 @@ try:
 except ImportError:
     pass
 
+# Note: Change symbol hints mapping in `javascript/hints.js` when you change the symbol values.
 refresh_symbol = '\U0001f504'       # 🔄
 switch_values_symbol = '\U000021C5' # ⇅
 camera_symbol = '\U0001F4F7'        # 📷
@@ -85,7 +88,7 @@ class ToolButton(gr.Button, gr.components.FormComponent):
     """Small button with single emoji as text, fits inside gradio forms"""
 
     def __init__(self, **kwargs):
-        super().__init__(variant="tool", **kwargs)
+        super().__init__(variant="tool", elem_classes=['cnet-toolbutton'], **kwargs)
 
     def get_block_name(self):
         return "button"
@@ -116,6 +119,33 @@ def swap_img2img_pipeline(p: processing.StableDiffusionProcessingImg2Img):
         setattr(p, k, v)
 
 
+def update_json_download_link(json_string: str, file_name: str) -> Dict:
+    base64_encoded_json = base64.b64encode(json_string.encode('utf-8')).decode('utf-8')
+    data_uri = f'data:application/json;base64,{base64_encoded_json}'
+    style = """ 
+    position: absolute;
+    right: var(--size-2);
+    bottom: calc(var(--size-2) * 4);
+    font-size: x-small;
+    font-weight: bold;
+    padding: 2px;
+
+    box-shadow: var(--shadow-drop);
+    border: 1px solid var(--button-secondary-border-color);
+    border-radius: var(--radius-sm);
+    background: var(--background-fill-primary);
+    height: var(--size-5);
+    color: var(--block-label-text-color);
+    """
+    hint = "Download the pose as .json file"
+    html = f"""<a href='{data_uri}' download='{file_name}' style="{style}" title="{hint}">
+                Json</a>"""
+    return gr.update(
+        value=html,
+        visible=(json_string != '')
+    )
+
+
 global_state.update_cn_models()
 
 
@@ -134,14 +164,23 @@ def image_dict_from_any(image) -> Optional[Dict[str, np.ndarray]]:
     if isinstance(image['image'], str):
         if os.path.exists(image['image']):
             image['image'] = numpy.array(Image.open(image['image'])).astype('uint8')
-        else:
+        elif image['image']:
             image['image'] = external_code.to_base64_nparray(image['image'])
+        else:
+            image['image'] = None            
+
+    # If there is no image, return image with None image and None mask
+    if image['image'] is None:
+        image['mask'] = None
+        return image
 
     if isinstance(image['mask'], str):
         if os.path.exists(image['mask']):
             image['mask'] = numpy.array(Image.open(image['mask'])).astype('uint8')
-        else:
+        elif image['mask']:
             image['mask'] = external_code.to_base64_nparray(image['mask'])
+        else:
+            image['mask'] = np.zeros_like(image['image'], dtype=np.uint8)
     elif image['mask'] is None:
         image['mask'] = np.zeros_like(image['image'], dtype=np.uint8)
 
@@ -209,6 +248,9 @@ class Script(scripts.Script):
             return self.img2img_h_slider
 
     def get_module_basename(self, module):
+        if module is None:
+            module = 'none'
+
         return global_state.reverse_preprocessor_aliases.get(module, module)
 
     def get_threshold_block(self, proc):
@@ -219,31 +261,46 @@ class Script(scripts.Script):
         return cls(
             enabled=False,
             module="none",
-            model="None",
-            guess_mode=False,
+            model="None"
         )
 
     def uigroup(self, tabname, is_img2img, elem_id_tabname):
         infotext_fields = []
         default_unit = self.get_default_ui_unit()
-        all_tabname = tabname
-        if is_img2img:
-            all_tabname="img2img_"+tabname
-        else:
-            all_tabname="txt2img_"+tabname
         with gr.Tabs():
             with gr.Tab(label='Single Image') as upload_tab:
-                with gr.Row(equal_height=True):
-                    input_image = gr.Image(elem_id=all_tabname+'_ext_ctl_image',source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch')
+                with gr.Row().style(equal_height=True):
+                    input_image = gr.Image(source='upload', brush_radius=20, mirror_webcam=False, type='numpy', tool='sketch', elem_id=f'{elem_id_tabname}_{tabname}_input_image')
                     # Gradio's magic number. Only 242 works.
-                    generated_image = gr.Image(label="Preprocessor Preview", visible=False).style(height=242)
+                    with gr.Group(visible=False) as generated_image_group:
+                        generated_image = gr.Image(label="Preprocessor Preview", elem_id=f'{elem_id_tabname}_{tabname}_generated_image').style(height=242)
+                        download_pose_link = gr.HTML(value='', visible=False)
+                        preview_close_button_style = """ 
+                            position: absolute;
+                            right: var(--size-2);
+                            bottom: var(--size-2);
+                            font-size: x-small;
+                            font-weight: bold;
+                            padding: 2px;
+                            cursor: pointer;
+
+                            box-shadow: var(--shadow-drop);
+                            border: 1px solid var(--button-secondary-border-color);
+                            border-radius: var(--radius-sm);
+                            background: var(--background-fill-primary);
+                            height: var(--size-5);
+                            color: var(--block-label-text-color);
+                            """
+                        preview_check_elem_id = f'{elem_id_tabname}_{tabname}_preprocessor_preview'
+                        preview_close_button_js = f"document.querySelector(\'#{preview_check_elem_id} input[type=\\\'checkbox\\\']\').click();"
+                        gr.HTML(value=f'''<a style="{preview_close_button_style}" title="Close Preview" onclick="{preview_close_button_js}">Close</a>''', visible=True)
 
             with gr.Tab(label='Batch') as batch_tab:
-                batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory')
+                batch_image_dir = gr.Textbox(label='Input Directory', placeholder='Leave empty to use img2img batch controlnet input directory', elem_id=f'{elem_id_tabname}_{tabname}_batch_image_dir')
 
         with gr.Accordion(label='Open New Canvas', visible=False) as create_canvas:
-            canvas_width = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_width',label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
-            canvas_height = gr.Slider(elem_id=all_tabname+'_ext_ctl_canvas_height',label="New Canvas Height", minimum=256, maximum=1024, value=512, step=64)
+            canvas_width = gr.Slider(label="New Canvas Width", minimum=256, maximum=1024, value=512, step=64)
+            canvas_height = gr.Slider(label="New Canvas Height", minimum=256, maximum=1024, value=512, step=64)
             with gr.Row():
                 canvas_create_button = gr.Button(value="Create New Canvas")
                 canvas_cancel_button = gr.Button(value="Cancel")
@@ -259,11 +316,10 @@ class Script(scripts.Script):
         canvas_cancel_button.click(lambda: gr.Accordion.update(visible=False), inputs=None, outputs=create_canvas)
 
         with FormRow(elem_classes="checkboxes-row", variant="compact"):
-            enabled = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_enabled',label='Enable', value=default_unit.enabled)
-            lowvram = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_lowvram',label='Low VRAM', value=default_unit.low_vram)
-            guess_mode = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_guess_mode',label='Guess Mode', value=default_unit.guess_mode)
-            pixel_perfect = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_pixel_perfect',label='Pixel Perfect', value=default_unit.pixel_perfect)
-            preprocessor_preview = gr.Checkbox(elem_id=all_tabname+'_ext_ctl_preprocessor_preview',label='Allow Preview', value=False)
+            enabled = gr.Checkbox(label='Enable', value=default_unit.enabled)
+            lowvram = gr.Checkbox(label='Low VRAM', value=default_unit.low_vram)
+            pixel_perfect = gr.Checkbox(label='Pixel Perfect', value=default_unit.pixel_perfect)
+            preprocessor_preview = gr.Checkbox(label='Allow Preview', value=False, elem_id=preview_check_elem_id)
 
         # infotext_fields.append((enabled, "ControlNet Enabled"))
 
@@ -301,123 +357,57 @@ class Script(scripts.Script):
             return gr.Dropdown.update(value=selected, choices=list(global_state.cn_models.keys()))
 
         with gr.Row():
-            module = gr.Dropdown(global_state.ui_preprocessor_keys,elem_id=all_tabname+'_ext_ctl_module', label=f"Preprocessor", value=default_unit.module)
-            trigger_preprocessor = ToolButton(value=trigger_symbol,elem_id=all_tabname+'_ext_ctl_trigger_preprocessor', visible=False)
-            model = gr.Dropdown(list(global_state.cn_models.keys()),elem_id=all_tabname+'_ext_ctl_model', label=f"Model", value=default_unit.model)
+            module = gr.Dropdown(global_state.ui_preprocessor_keys, label=f"Preprocessor", value=default_unit.module)
+            trigger_preprocessor = ToolButton(value=trigger_symbol, visible=True)
+            model = gr.Dropdown(list(global_state.cn_models.keys()), label=f"Model", value=default_unit.model)
             refresh_models = ToolButton(value=refresh_symbol)
             refresh_models.click(refresh_all_models, model, model)
 
         with gr.Row():
-            weight = gr.Slider(elem_id=all_tabname+'_ext_ctl_weight',label=f"Control Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
-            guidance_start = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_start',label="Starting Control Step", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
-            guidance_end = gr.Slider(elem_id=all_tabname+'_ext_ctl_guidance_end',label="Ending Control Step", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
+            weight = gr.Slider(label=f"Control Weight", value=default_unit.weight, minimum=0.0, maximum=2.0, step=.05)
+            guidance_start = gr.Slider(label="Starting Control Step", value=default_unit.guidance_start, minimum=0.0, maximum=1.0, interactive=True)
+            guidance_end = gr.Slider(label="Ending Control Step", value=default_unit.guidance_end, minimum=0.0, maximum=1.0, interactive=True)
 
         def build_sliders(module, pp):
             module = self.get_module_basename(module)
-            if module == "canny":
+            if module not in preprocessor_sliders_config:
                 return [
-                    gr.update(label="Preprocessor resolution", value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Canny low threshold", minimum=1, maximum=255, value=100, step=1, visible=True, interactive=True),
-                    gr.update(label="Canny high threshold", minimum=1, maximum=255, value=200, step=1, visible=True, interactive=True),
-                    gr.update(visible=True)
-                ]
-            elif module == "mlsd": #Hough
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Hough value threshold (MLSD)", minimum=0.01, maximum=2.0, value=0.1, step=0.01, visible=True, interactive=True),
-                    gr.update(label="Hough distance threshold (MLSD)", minimum=0.01, maximum=20.0, value=0.1, step=0.01, visible=True, interactive=True),
-                    gr.update(visible=True)
-                ]
-            elif module in ["hed", "scribble_hed", "hed_safe"]:
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
+                    gr.update(label=flag_preprocessor_resolution, value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
                     gr.update(visible=False, interactive=False),
                     gr.update(visible=False, interactive=False),
                     gr.update(visible=True)
-                ]
-            elif module in ["openpose", "openpose_full", "segmentation"]:
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "depth":
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module in ["depth_leres", "depth_leres_boost"]:
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Remove Near %", value=0, minimum=0, maximum=100, step=0.1, visible=True, interactive=True),
-                    gr.update(label="Remove Background %", value=0, minimum=0, maximum=100, step=0.1, visible=True, interactive=True),
-                    gr.update(visible=True)
-                ]
-            elif module == "normal_map":
-                return [
-                    gr.update(label="Preprocessor Resolution", minimum=64, maximum=2048, value=512, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Normal background threshold", minimum=0.0, maximum=1.0, value=0.4, step=0.01, visible=True, interactive=True),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "threshold":
-                return [
-                    gr.update(label="Preprocessor resolution", value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Binarization Threshold", minimum=0, maximum=255, value=127, step=1, visible=True, interactive=True),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "scribble_xdog":
-                return [
-                    gr.update(label="Preprocessor resolution", value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="XDoG Threshold", minimum=1, maximum=64, value=32, step=1, visible=True, interactive=True),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "tile_gaussian":
-                return [
-                    gr.update(label="Preprocessor resolution", value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(label="Noise", value=16.0, minimum=0.1, maximum=48.0, step=0.01, visible=True, interactive=True),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "color":
-                return [
-                    gr.update(label="Preprocessor Resolution", value=512, minimum=64, maximum=2048, step=8, visible=not pp, interactive=not pp),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
-            elif module == "mediapipe_face":
-                return [
-                    gr.update(label="Preprocessor Resolution", value=512, minimum=64, maximum=2048, step=8, visible=not pp, interactive=not pp),
-                    gr.update(label="Max Faces", value=1, minimum=1, maximum=10, step=1, visible=True, interactive=True),
-                    gr.update(label="Min Face Confidence", value=0.5, minimum=0.01, maximum=1.0, step=0.01, visible=True, interactive=True),
-                    gr.update(visible=True)
-                ]
-            elif module == "none" or "inpaint" in module:
-                return [
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False)
                 ]
             else:
-                return [
-                    gr.update(label="Preprocessor resolution", value=512, minimum=64, maximum=2048, step=1, visible=not pp, interactive=not pp),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=False, interactive=False),
-                    gr.update(visible=True)
-                ]
+                slider_configs = preprocessor_sliders_config[module]
+                grs = []
+
+                for slider_config in slider_configs:
+                    if isinstance(slider_config, dict):
+                        visible = True
+                        if slider_config['name'] == flag_preprocessor_resolution:
+                            visible = not pp
+                        grs.append(gr.update(
+                            label=slider_config['name'],
+                            value=slider_config['value'],
+                            minimum=slider_config['min'],
+                            maximum=slider_config['max'],
+                            step=slider_config['step'] if 'step' in slider_config else 1,
+                            visible=visible,
+                            interactive=visible))
+                    else:
+                        grs.append(gr.update(visible=False, interactive=False))
+
+                while len(grs) < 3:
+                    grs.append(gr.update(visible=False, interactive=False))
+
+                grs.append(gr.update(visible=True))
+                return grs
 
         # advanced options
         with gr.Column(visible=False) as advanced:
-            processor_res = gr.Slider(elem_id=all_tabname+'_ext_ctl_processor_res',label="Preprocessor resolution", value=default_unit.processor_res, minimum=64, maximum=2048, visible=False, interactive=False)
-            threshold_a = gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_a',label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, visible=False, interactive=False)
-            threshold_b = gr.Slider(elem_id=all_tabname+'_ext_ctl_threshold_b',label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, visible=False, interactive=False)
+            processor_res = gr.Slider(label="Preprocessor resolution", value=default_unit.processor_res, minimum=64, maximum=2048, visible=False, interactive=False)
+            threshold_a = gr.Slider(label="Threshold A", value=default_unit.threshold_a, minimum=64, maximum=1024, visible=False, interactive=False)
+            threshold_b = gr.Slider(label="Threshold B", value=default_unit.threshold_b, minimum=64, maximum=1024, visible=False, interactive=False)
 
         if gradio_compat:
             module.change(build_sliders, inputs=[module, pixel_perfect], outputs=[processor_res, threshold_a, threshold_b, advanced])
@@ -438,9 +428,9 @@ class Script(scripts.Script):
                 return input_image.orgpreprocess(inputs)
             return None
 
-        def run_annotator(image, module, pres, pthr_a, pthr_b):
+        def run_annotator(image, module, pres, pthr_a, pthr_b, t2i_w, t2i_h, pp, rm):
             if image is None:
-                return gr.update(value=None, visible=True)
+                return gr.update(value=None, visible=True), gr.update(), gr.update()
 
             img = HWC3(image['image'])
             if not ((image['mask'][:, :, 0] == 0).all() or (image['mask'][:, :, 0] == 255).all()):
@@ -454,37 +444,96 @@ class Script(scripts.Script):
             module = self.get_module_basename(module)
             preprocessor = self.preprocessor[module]
 
-            if pres > 64:
-                result, is_image = preprocessor(img, res=pres, thr_a=pthr_a, thr_b=pthr_b)
-            else:
-                result, is_image = preprocessor(img)
+            if pp:
+                raw_H, raw_W, _ = img.shape
+                target_H, target_W = t2i_h, t2i_w
+                rm = str(rm)
+
+                k0 = float(target_H) / float(raw_H)
+                k1 = float(target_W) / float(raw_W)
+
+                if rm == external_code.ResizeMode.OUTER_FIT.value:
+                    estimation = min(k0, k1) * float(min(raw_H, raw_W))
+                else:
+                    estimation = max(k0, k1) * float(min(raw_H, raw_W))
+
+                pres = int(np.round(estimation))
+                print(f'Pixel Perfect Mode Enabled In Preview.')
+                print(f'resize_mode = {rm}')
+                print(f'raw_H = {raw_H}')
+                print(f'raw_W = {raw_W}')
+                print(f'target_H = {target_H}')
+                print(f'target_W = {target_W}')
+                print(f'estimation = {estimation}')
+
+            class JsonAcceptor:
+                def __init__(self) -> None:
+                    self.value = ''
+
+                def accept(self, json_string: str) -> None:
+                    self.value = json_string
+            json_acceptor = JsonAcceptor()
+
+            print(f'Preview Resolution = {pres}')
+            result, is_image = preprocessor(img, res=pres, thr_a=pthr_a, thr_b=pthr_b, json_pose_callback=json_acceptor.accept)
+
+            if preprocessor is processor.clip:
+                result = processor.clip_vision_visualization(result)
+                is_image = True
 
             if is_image:
                 if result.ndim == 3 and result.shape[2] == 4:
                     inpaint_mask = result[:, :, 3]
                     result = result[:, :, 0:3]
                     result[inpaint_mask > 127] = 0
-                return gr.update(value=result, visible=True, interactive=False)
+                return (
+                    # Update to `generated_image`
+                    gr.update(value=result, visible=True, interactive=False),
+                    # Update to `download_pose_link`
+                    update_json_download_link(json_acceptor.value, 'pose.json'),
+                    # preprocessor_preview
+                    gr.update(value=True)
+                )
 
-            return gr.update(value=None, visible=True)
+            return (
+                # Update to `generated_image`
+                gr.update(value=None, visible=True),
+                # Update to `download_pose_link`
+                update_json_download_link(json_acceptor.value, 'pose.json'),
+                # preprocessor_preview
+                gr.update(value=True)
+            )
 
         def shift_preview(is_on):
-            if is_on:
-                return gr.update(visible=True), gr.update(value=None, visible=True)
-            else:
-                return gr.update(visible=False), gr.update(visible=False)
+            return (
+                # generated_image
+                gr.update() if is_on else gr.update(value=None),
+                # generated_image_group
+                gr.update(visible=is_on),
+                # download_pose_link
+                gr.update() if is_on else gr.update(value=None),
+            )
 
-        preprocessor_preview.change(fn=shift_preview, inputs=[preprocessor_preview], outputs=[trigger_preprocessor, generated_image])
-        trigger_preprocessor.click(fn=run_annotator, inputs=[input_image, module, processor_res, threshold_a, threshold_b], outputs=[generated_image])
+        preprocessor_preview.change(fn=shift_preview, inputs=[preprocessor_preview], 
+                                    outputs=[generated_image, generated_image_group, download_pose_link])
 
         if is_img2img:
             send_dimen_button.click(fn=send_dimensions, inputs=[input_image], outputs=[self.img2img_w_slider, self.img2img_h_slider])
         else:
             send_dimen_button.click(fn=send_dimensions, inputs=[input_image], outputs=[self.txt2img_w_slider, self.txt2img_h_slider])
 
+        control_mode = gr.Radio(choices=[e.value for e in external_code.ControlMode], value=default_unit.control_mode.value, label="Control Mode")
+
         resize_mode = gr.Radio(choices=[e.value for e in external_code.ResizeMode], value=default_unit.resize_mode.value, label="Resize Mode")
 
         loopback = gr.Checkbox(label='[Loopback] Automatically send generated images to this ControlNet unit', value=default_unit.loopback)
+
+        trigger_preprocessor.click(fn=run_annotator, inputs=[
+            input_image, module, processor_res, threshold_a, threshold_b,
+            self.img2img_w_slider if is_img2img else self.txt2img_w_slider,
+            self.img2img_h_slider if is_img2img else self.txt2img_h_slider,
+            pixel_perfect, resize_mode
+        ], outputs=[generated_image, download_pose_link, preprocessor_preview])
 
         def fn_canvas(h, w):
             return np.zeros(shape=(h, w, 3), dtype=np.uint8) + 255, gr.Accordion.update(visible=False)
@@ -494,7 +543,7 @@ class Script(scripts.Script):
         input_mode = gr.State(batch_hijack.InputMode.SIMPLE)
         batch_image_dir_state = gr.State('')
         output_dir_state = gr.State('')
-        unit_args = (input_mode, batch_image_dir_state, output_dir_state, loopback, enabled, module, model, weight, input_image, resize_mode, lowvram, processor_res, threshold_a, threshold_b, guidance_start, guidance_end, guess_mode, pixel_perfect)
+        unit_args = (input_mode, batch_image_dir_state, output_dir_state, loopback, enabled, module, model, weight, input_image, resize_mode, lowvram, processor_res, threshold_a, threshold_b, guidance_start, guidance_end, pixel_perfect, control_mode)
         self.register_modules(tabname, unit_args)
 
         input_image.orgpreprocess=input_image.preprocess
@@ -600,7 +649,7 @@ class Script(scripts.Script):
                                 controls += (self.uigroup(f"ControlNet-{i}", is_img2img, elem_id_tabname),)
                 else:
                     with gr.Column():
-                        controls += (self.uigroup(f"ControlNet-0", is_img2img, elem_id_tabname),)
+                        controls += (self.uigroup(f"ControlNet", is_img2img, elem_id_tabname),)
 
         if shared.opts.data.get("control_net_sync_field_args", False):
             for _, field_name in self.infotext_fields:
@@ -610,7 +659,7 @@ class Script(scripts.Script):
 
     def register_modules(self, tabname, params):
         enabled, module, model, weight = params[4:8]
-        guidance_start, guidance_end, guess_mode, pixel_perfect = params[-4:]
+        guidance_start, guidance_end, pixel_perfect, control_mode = params[-4:]
 
         self.infotext_fields.extend([
             (enabled, f"{tabname} Enabled"),
@@ -703,6 +752,15 @@ class Script(scripts.Script):
 
         if os.path.exists(override_config):
             network_config = override_config
+        else:
+            print(f'ERROR: ControlNet cannot find model config [{override_config}] \n'
+                  f'ERROR: ControlNet will use a WRONG config [{network_config}] to load your model. \n'
+                  f'ERROR: The WRONG config may not match your model. The generated results can be bad. \n'
+                  f'ERROR: You are using a ControlNet model [{model_stem}] without correct YAML config file. \n'
+                  f'ERROR: The performance of this model may be worse than your expectation. \n'
+                  f'ERROR: If this model cannot get good results, the reason is that you do not have a YAML file for the model. \n'
+                  f'Solution: Please download YAML file, or ask your model provider to provide [{override_config}] for you to download.\n'
+                  f'Hint: You can take a look at [{os.path.join(global_state.script_dir, "models")}] to find many existing YAML files.\n')
 
         print(f"Loading config: {network_config}")
         network = network_module(
@@ -748,7 +806,7 @@ class Script(scripts.Script):
         unit.guidance_start = selector(p, "control_net_guidance_start", unit.guidance_start, idx)
         unit.guidance_end = selector(p, "control_net_guidance_end", unit.guidance_end, idx)
         unit.guidance_end = selector(p, "control_net_guidance_strength", unit.guidance_end, idx)
-        unit.guess_mode = selector(p, "control_net_guess_mode", unit.guess_mode, idx)
+        unit.control_mode = selector(p, "control_net_control_mode", unit.control_mode, idx)
         unit.pixel_perfect = selector(p, "control_net_pixel_perfect", unit.pixel_perfect, idx)
 
         return unit
@@ -889,18 +947,23 @@ class Script(scripts.Script):
 
             enabled_units.append(copy(unit))
             if len(units) != 1:
-                prefix = f"ControlNet-{idx}"
+                log_key = f"ControlNet {idx}"
             else:
-                prefix = "ControlNet"
+                log_key = "ControlNet"
 
-            p.extra_generation_params.update({
-                f"{prefix} Enabled": True,
-                f"{prefix} Module": unit.module,
-                f"{prefix} Model": unit.model,
-                f"{prefix} Weight": unit.weight,
-                f"{prefix} Guidance Start": unit.guidance_start,
-                f"{prefix} Guidance End": unit.guidance_end,
-            })
+            log_value = {
+                "preprocessor": unit.module,
+                "model": unit.model,
+                "weight": unit.weight,
+                "starting/ending": str((unit.guidance_start, unit.guidance_end)),
+                "resize mode": str(unit.resize_mode),
+                "pixel perfect": str(unit.pixel_perfect),
+                "control mode": str(unit.control_mode),
+                "preprocessor params": str((unit.processor_res, unit.threshold_a, unit.threshold_b)),
+            }
+            log_value = str(log_value).replace('\'', '').replace('{', '').replace('}', '')
+
+            p.extra_generation_params.update({log_key: log_value})
 
         return enabled_units
 
@@ -946,6 +1009,7 @@ class Script(scripts.Script):
                     image['mask'] = image['mask'][..., np.newaxis]
 
             resize_mode = external_code.resize_mode_from_value(unit.resize_mode)
+            control_mode = external_code.control_mode_from_value(unit.control_mode)
 
             if unit.low_vram:
                 hook_lowvram = True
@@ -1057,9 +1121,13 @@ class Script(scripts.Script):
                 input_image = [np.asarray(x)[:, :, 0] for x in input_image]
                 input_image = np.stack(input_image, axis=2)
 
-            tmp_seed = int(p.all_seeds[0] if p.seed == -1 else max(int(p.seed),0))
-            tmp_subseed = int(p.all_seeds[0] if p.subseed == -1 else max(int(p.subseed),0))
-            np.random.seed((tmp_seed + tmp_subseed) & 0xFFFFFFFF)
+            try:
+                tmp_seed = int(p.all_seeds[0] if p.seed == -1 else max(int(p.seed), 0))
+                tmp_subseed = int(p.all_seeds[0] if p.subseed == -1 else max(int(p.subseed), 0))
+                np.random.seed((tmp_seed + tmp_subseed) & 0xFFFFFFFF)
+            except Exception as e:
+                print(e)
+                print('Warning: Failed to use consistent random seed.')
 
             # safe numpy
             input_image = np.ascontiguousarray(input_image.copy()).copy()
@@ -1067,34 +1135,32 @@ class Script(scripts.Script):
             print(f"Loading preprocessor: {unit.module}")
             preprocessor = self.preprocessor[unit.module]
             h, w, bsz = p.height, p.width, p.batch_size
-            if unit.processor_res > 64:
-                preprocessor_resolution = unit.processor_res
-                if unit.pixel_perfect:
-                    raw_H, raw_W, _ = input_image.shape
-                    target_H, target_W = p.height, p.width
 
-                    k0 = float(target_H) / float(raw_H)
-                    k1 = float(target_W) / float(raw_W)
+            preprocessor_resolution = unit.processor_res
+            if unit.pixel_perfect:
+                raw_H, raw_W, _ = input_image.shape
+                target_H, target_W = p.height, p.width
 
-                    if resize_mode == external_code.ResizeMode.OUTER_FIT:
-                        estimation = min(k0, k1) * float(min(raw_H, raw_W))
-                    else:
-                        estimation = max(k0, k1) * float(min(raw_H, raw_W))
+                k0 = float(target_H) / float(raw_H)
+                k1 = float(target_W) / float(raw_W)
 
-                    preprocessor_resolution = int(np.round(float(estimation) / 64.0)) * 64
+                if resize_mode == external_code.ResizeMode.OUTER_FIT:
+                    estimation = min(k0, k1) * float(min(raw_H, raw_W))
+                else:
+                    estimation = max(k0, k1) * float(min(raw_H, raw_W))
 
-                    print(f'Pixel Perfect Mode Enabled.')
-                    print(f'resize_mode = {str(resize_mode)}')
-                    print(f'raw_H = {raw_H}')
-                    print(f'raw_W = {raw_W}')
-                    print(f'target_H = {target_H}')
-                    print(f'target_W = {target_W}')
-                    print(f'estimation = {estimation}')
+                preprocessor_resolution = int(np.round(estimation))
 
-                print(f'preprocessor resolution = {preprocessor_resolution}')
-                detected_map, is_image = preprocessor(input_image, res=preprocessor_resolution, thr_a=unit.threshold_a, thr_b=unit.threshold_b)
-            else:
-                detected_map, is_image = preprocessor(input_image)
+                print(f'Pixel Perfect Mode Enabled.')
+                print(f'resize_mode = {str(resize_mode)}')
+                print(f'raw_H = {raw_H}')
+                print(f'raw_W = {raw_W}')
+                print(f'target_H = {target_H}')
+                print(f'target_W = {target_W}')
+                print(f'estimation = {estimation}')
+
+            print(f'preprocessor resolution = {preprocessor_resolution}')
+            detected_map, is_image = preprocessor(input_image, res=preprocessor_resolution, thr_a=unit.threshold_a, thr_b=unit.threshold_b)
 
             if unit.module == "none" and "style" in unit.model:
                 detected_map_bytes = detected_map[:,:,0].tobytes()
@@ -1122,17 +1188,14 @@ class Script(scripts.Script):
                 detected_maps.append((detected_map, unit.module))
             else:
                 control = detected_map
-
                 if unit.module == 'clip_vision':
-                    fake_detected_map = np.ndarray((detected_map.shape[0]*4, detected_map.shape[1]),dtype="uint8", buffer=detected_map.detach().cpu().numpy().tobytes())
-                    detected_maps.append((fake_detected_map, unit.module))
+                    detected_maps.append((processor.clip_vision_visualization(detected_map), unit.module))
 
             is_vanilla_samplers = p.sampler_name in ["DDIM", "PLMS", "UniPC"]
 
             forward_param = ControlParams(
                 control_model=model_net,
                 hint_cond=control,
-                guess_mode=unit.guess_mode,
                 weight=unit.weight,
                 guidance_stopped=False,
                 start_guidance_percent=unit.guidance_start,
@@ -1145,7 +1208,9 @@ class Script(scripts.Script):
                 batch_size=p.batch_size,
                 instance_counter=0,
                 is_vanilla_samplers=is_vanilla_samplers,
-                cfg_scale=p.cfg_scale
+                cfg_scale=p.cfg_scale,
+                soft_injection=control_mode != external_code.ControlMode.BALANCED,
+                cfg_injection=control_mode == external_code.ControlMode.CONTROL,
             )
             forward_params.append(forward_param)
 
@@ -1156,10 +1221,9 @@ class Script(scripts.Script):
         self.latest_network.notify(forward_params, is_vanilla_samplers)
         self.detected_map = detected_maps
 
-        if len(self.enabled_units) > 0 and shared.opts.data.get("control_net_skip_img2img_processing") and hasattr(p, "init_images"):
-            swap_img2img_pipeline(p)
-
     def postprocess(self, p, processed, *args):
+        processor_params_flag = (', '.join(getattr(processed, 'extra_generation_params', []))).lower()
+
         if not batch_hijack.instance.is_batch:
             self.enabled_units.clear()
 
@@ -1176,12 +1240,18 @@ class Script(scripts.Script):
         if self.latest_network is None:
             return
 
-        no_detectmap_opt = shared.opts.data.get("control_net_no_detectmap", False)
-        if not batch_hijack.instance.is_batch or not no_detectmap_opt and self.detected_map:
-            for detect_map, module in self.detected_map:
-                if detect_map is None:
-                    continue
-                processed.images.extend([Image.fromarray(detect_map.clip(0, 255).astype(np.uint8))])
+        if not batch_hijack.instance.is_batch:
+            if not shared.opts.data.get("control_net_no_detectmap", False):
+                if 'sd upscale' not in processor_params_flag:
+                    if self.detected_map is not None:
+                        for detect_map, module in self.detected_map:
+                            if detect_map is None:
+                                continue
+                            processed.images.extend([
+                                Image.fromarray(
+                                    np.ascontiguousarray(detect_map.copy()).copy().clip(0, 255).astype(np.uint8)
+                                )
+                            ])
 
         self.input_image = None
         self.latest_network.restore(p.sd_model.model.diffusion_model)
@@ -1237,30 +1307,18 @@ def on_ui_settings():
         1, "Multi ControlNet: Max models amount (requires restart)", gr.Slider, {"minimum": 1, "maximum": 10, "step": 1}, section=section))
     shared.opts.add_option("control_net_model_cache_size", shared.OptionInfo(
         1, "Model cache size (requires restart)", gr.Slider, {"minimum": 1, "maximum": 5, "step": 1}, section=section))
-    shared.opts.add_option("control_net_control_transfer", shared.OptionInfo(
-        False, "Apply transfer control when loading models", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("control_net_no_detectmap", shared.OptionInfo(
         False, "Do not append detectmap to output", gr.Checkbox, {"interactive": True}, section=section))
-    shared.opts.add_option("control_net_high_res_only_mid", shared.OptionInfo(
-        False, "Use only-mid-control on high-res. fix (second pass)", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("control_net_detectmap_autosaving", shared.OptionInfo(
         False, "Allow detectmap auto saving", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("control_net_allow_script_control", shared.OptionInfo(
         False, "Allow other script to control this extension", gr.Checkbox, {"interactive": True}, section=section))
-    shared.opts.add_option("control_net_skip_img2img_processing", shared.OptionInfo(
-        False, "Skip img2img processing when using img2img initial image", gr.Checkbox, {"interactive": True}, section=section))
-    shared.opts.add_option("control_net_monocular_depth_optim", shared.OptionInfo(
-        False, "Enable optimized monocular depth estimation", gr.Checkbox, {"interactive": True}, section=section))
-    shared.opts.add_option("control_net_only_mid_control", shared.OptionInfo(
-        False, "Only use mid-control when inference", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("control_net_sync_field_args", shared.OptionInfo(
         False, "Passing ControlNet parameters with \"Send to img2img\"", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("controlnet_show_batch_images_in_ui", shared.OptionInfo(
-        False, "Show batch images in gradio gallerie output", gr.Checkbox, {"interactive": True}, section=section))
+        False, "Show batch images in gradio gallery output", gr.Checkbox, {"interactive": True}, section=section))
     shared.opts.add_option("controlnet_increment_seed_during_batch", shared.OptionInfo(
         False, "Increment seed after each controlnet batch iteration", gr.Checkbox, {"interactive": True}, section=section))
-    # shared.opts.add_option("control_net_advanced_weighting", shared.OptionInfo(
-    #     False, "Enable advanced weight tuning", gr.Checkbox, {"interactive": False}, section=section))
 
 
 def on_after_component(component, **_kwargs):
